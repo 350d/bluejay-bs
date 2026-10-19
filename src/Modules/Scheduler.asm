@@ -224,8 +224,10 @@ scheduler_steps_odd_temp_pwm_limit_inc:
 ; Run speciffic odd scheduler step
 scheduler_steps_odd_choose_step:
     ; Check if extended telemetry is enabled, otherwise skip frame generation
-    jnb  Flag_Ext_Tele, scheduler_steps_odd_restart_ADC
+    jb   Flag_Ext_Tele, scheduler_steps_odd_frame
+    ljmp scheduler_steps_odd_restart_ADC ; Out of short jump range
 
+scheduler_steps_odd_frame:
     ; Get scheduler step
     mov  A, Scheduler_Counter
     anl  A, #MASK_STEP

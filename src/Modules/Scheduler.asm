@@ -54,10 +54,7 @@ MASK_STEP                       EQU (007h SHL SCHEDULER_COUNTER_DIVIDER_POW2)
 
 ; Scheduler steps for steps 1, 5
 STEP1_STATUS_FRAME              EQU (001h SHL SCHEDULER_COUNTER_DIVIDER_POW2)
-STEP5_DEBUG_FRAME               EQU (005h SHL SCHEDULER_COUNTER_DIVIDER_POW2)
-
-; Scheduler counter bit that follows the step bits, selects debug1 or debug2 on step 5
-DEBUG_FRAME_SELECT_BIT          EQU (SCHEDULER_COUNTER_DIVIDER_POW2 + 3)
+STEP5_DEBUG1_FRAME              EQU (005h SHL SCHEDULER_COUNTER_DIVIDER_POW2)
 
 ;**** **** **** **** **** **** **** **** **** **** **** **** ****
 ;
@@ -75,16 +72,19 @@ DEBUG_FRAME_SELECT_BIT          EQU (SCHEDULER_COUNTER_DIVIDER_POW2 + 3)
 ; ReqSch08:       - Case step 3 and 7
 ; ReqSch09:           - [TELEMETRY] Send temperature frame
 ; ReqSch10:       - Case step 5
-; ReqSch11:           - [TELEMETRY] Send debug1 frame, or debug2 frame on alternate cycles
+; ReqSch11:           - [TELEMETRY] Send debug1 frame
 ; ReqSch14:       - Start new ADC conversion after every odd step
 ; ReqSch15:   - Every 16ms step
 ; ReqSch16:       - Accumulate power limiting activity reported by the pwm interrupt
 ;
-; Extensions to the extended telemetry spec:
+; Extensions to the extended telemetry spec (Bluejay specific):
 ; - Status frame bit 4: output power was limited since the previous status frame
-; - Debug1 frame: bit 7 pwm limit (thermal protection or startup limiter) active,
-;                 bits 6-0 number of 16ms periods with power limiting since the previous debug1 frame
-; - Debug2 frame: PWM frequency in kHz
+; - Debug1 frame (every 1024ms), packed so that a receiver can validate it:
+;     bit 7     pwm limit below 255 (thermal protection, or startup limiter before motor start)
+;     bits 6-5  pwm frequency code (0: 24, 1: 48, 2: 96 kHz), 3 is never sent
+;     bit 4     even parity bit: the whole byte has an even number of ones
+;     bits 3-0  power limited 16ms periods since previous debug1 frame, in units of 64ms (saturates at 15)
+; - Debug2 frame is not used
 ;
 ;**** **** **** **** **** **** **** **** **** **** **** **** ****
 
@@ -113,7 +113,7 @@ scheduler_check_time_counter:
 scheduler_pwm_limited:
     setb Flag_Pwm_Limit_Notify
     mov  A, Pwm_Limit_Cnt
-    cjne A, #127, scheduler_pwm_limited_inc ; Saturate at 127
+    cjne A, #60, scheduler_pwm_limited_inc ; Saturate at 60 (15 units of 64ms)
     sjmp scheduler_check_time_counter
 
 scheduler_pwm_limited_inc:
@@ -281,38 +281,35 @@ scheduler_steps_odd_status_frame_max_loaded:
     ret
 
 ;**** **** **** **** **** **** **** **** **** **** **** **** ****
-; [TELEMETRY] SEND DEBUG1 OR DEBUG2 FRAME
+; [TELEMETRY] SEND DEBUG1 FRAME
 ;**** **** **** **** **** **** **** **** **** **** **** **** ****
 scheduler_steps_odd_debug_frame:
     ; Steps 3 and 7 send temperature
-    cjne A, #STEP5_DEBUG_FRAME, scheduler_steps_odd_temperature_frame
+    cjne A, #STEP5_DEBUG1_FRAME, scheduler_steps_odd_temperature_frame
 
-    ; Alternate debug1 and debug2 on every other cycle
-    mov  A, Scheduler_Counter
-    jb   ACC.DEBUG_FRAME_SELECT_BIT, scheduler_steps_odd_debug2_frame
+    ; Power limited periods in units of 64ms (count is at most 60) and pwm frequency code
+    mov  A, Pwm_Limit_Cnt
+    rr   A
+    rr   A
+    anl  A, #0Fh
+    orl  A, #(PWM_FREQ SHL 5)
+    mov  B, A
 
-    ; Debug1: bit 7 = pwm limit active, bits 6-0 = power limited periods count
+    ; Bit 7: pwm limit active
     clr  C
     mov  A, Pwm_Limit
     subb A, #255                        ; Carry set when pwm limit is below 255
-    mov  A, Pwm_Limit_Cnt               ; Count is at most 127 so bit 7 is free
+    mov  A, B
     mov  ACC.7, C
+
+    ; Bit 4: parity bit, makes the number of ones even (bit 4 is clear here)
+    mov  C, PSW_PARITY
+    mov  ACC.4, C
     mov  Ext_Telemetry_L, A             ; Set telemetry low value
     mov  Ext_Telemetry_H, #08h          ; Set telemetry high value to debug1 frame ID
 
     ; Data loaded clear counter
     mov  Pwm_Limit_Cnt, #0
-
-    ; Now restart ADC conversion
-    Restart_Adc
-
-    ; Nothing else to do
-    ret
-
-scheduler_steps_odd_debug2_frame:
-    ; Debug2: pwm frequency in kHz
-    mov  Ext_Telemetry_L, #(24 SHL PWM_FREQ) ; Set telemetry low value
-    mov  Ext_Telemetry_H, #0Ah          ; Set telemetry high value to debug2 frame ID
 
     ; Now restart ADC conversion
     Restart_Adc

@@ -273,7 +273,7 @@ DShot_GCR_Start_Delay: DS 1
 Ext_Telemetry_L: DS 1                   ; Extended telemetry data to be sent
 Ext_Telemetry_H: DS 1
 Scheduler_Counter: DS 1                 ; Scheduler Heartbeat
-Pwm_Limit_Cnt: DS 1                     ; Number of 16ms periods with power limiting since last debug1 frame (max 127)
+Pwm_Limit_Cnt: DS 1                     ; Number of 16ms periods with power limiting since last debug1 frame (max 60)
 ;**** **** **** **** **** **** **** **** **** **** **** **** ****
 ; Indirect addressing data segments
 ;**** **** **** **** **** **** **** **** **** **** **** **** ****

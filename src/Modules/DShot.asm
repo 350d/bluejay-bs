@@ -216,13 +216,6 @@ dshot_cmd_exit_no_clear:
     ret
 
 ;**** **** **** **** **** **** **** **** **** **** **** **** ****
-; Number of consecutive telemetry packets an extended telemetry frame is sent in.
-; Each one replaces an eRPM packet. 4 covers a receiver that decodes
-; the telemetry of one of 4 motors per loop.
-;**** **** **** **** **** **** **** **** **** **** **** **** ****
-EXT_TELEMETRY_SENDS EQU 4
-
-;**** **** **** **** **** **** **** **** **** **** **** **** ****
 ;
 ; DShot telemetry create packet
 ;
@@ -313,15 +306,15 @@ dshot_tlm_ext_coded:
     mov  Tlm_Data_L, Ext_Telemetry_L
     mov  Tlm_Data_H, Ext_Telemetry_H
 
-    ; Send the frame EXT_TELEMETRY_SENDS times in a row, so that a receiver which
-    ; decodes the telemetry of one motor per loop (round robin) does not miss it
-    inc  Ext_Telemetry_Sent
-    mov  A, Ext_Telemetry_Sent
-    cjne A, #EXT_TELEMETRY_SENDS, dshot_tlm_12bit_encoded
+    ; Keep the frame for the next packet while repeats are requested
+    mov  A, Ext_Telemetry_Repeat
+    jz   dshot_tlm_ext_clear
+    dec  Ext_Telemetry_Repeat
+    sjmp dshot_tlm_12bit_encoded
 
-    ; Frame sent enough times, clear extended telemetry data
+dshot_tlm_ext_clear:
+    ; Clear extended telemetry data
     mov  Ext_Telemetry_H, #0
-    mov  Ext_Telemetry_Sent, #0
 
 dshot_tlm_12bit_encoded:
     Early_Return_Packet_Stage 2
